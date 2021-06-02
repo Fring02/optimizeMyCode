@@ -65,8 +65,6 @@ func WordCounter(out io.Writer) {
 
 	size = len(sortedSlice)
 
-	fmt.Println(size)
-
 	numOfCPUs := runtime.NumCPU();
 	//Slice for checked words, reading and counting already checked words cause huge overhead
 
@@ -119,8 +117,6 @@ func WordCounter(out io.Writer) {
 					}
 				}
 
-				fmt.Println("UW - ", len(usedWords))
-
 				for i:=0; i<len(usedWords); i++ {
 					matcherChannel <- matcher{
 						byteArray: usedWords[i],
@@ -137,25 +133,28 @@ func WordCounter(out io.Writer) {
 	}
 
 	var matchedArray []matcher;
-	counter := 0
+	var flag bool
 
-	go func(matChannel chan matcher, matchedArr *[]matcher, wg *sync.WaitGroup) {
-		wg.Add(1)
-		defer wg.Done()
+	go func(matChannel chan matcher, matchedArr *[]matcher, wg *sync.WaitGroup, flag bool) {
 		for request := range matChannel{
-			counter++
+			flag = true
 			if length:=len(matchedArray); length > 0 && matchedArray != nil {
 
 				for i:= 0; i < length; i++ {
 					if bytes.Compare((*matchedArr)[i].byteArray, request.byteArray) == 0 {
 						(*matchedArr)[i].occurence+=request.occurence
-						return
+						flag=false
+						break
 					}
 				}
 
-				matchedArray = append(matchedArray, matcher{
-					byteArray: request.byteArray,
-					occurence: request.occurence})
+				if flag {
+					matchedArray = append(matchedArray, matcher{
+						byteArray: request.byteArray,
+						occurence: request.occurence})
+				}
+
+				flag = true
 
 			} else {
 
@@ -166,18 +165,9 @@ func WordCounter(out io.Writer) {
 			}
 		}
 
-	}(matcherChannel, &matchedArray, &wg)
+	}(matcherChannel, &matchedArray, &wg, flag)
 
-	//go func(ocChannel chan uint) {
-	//	for request := range ocChannel{
-	//		fmt.Println("occurrence ", request)
-	//	}
-	//}(occurrenceChannel)
 	wg.Wait()
-
-	for i:= 0; i < len(matchedArray); i++ {
-		fmt.Println(string(matchedArray[i].byteArray), ":", matchedArray[i].occurence)
-	}
 
 	fmt.Println(len(matchedArray))
 	//usedWords = append(usedWords, sortedSlice[0])
