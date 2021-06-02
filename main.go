@@ -12,8 +12,7 @@ import (
 	"time"
 )
 
-
-func main(){
+func main() {
 	start := time.Now()
 
 	WordCounter(ioutil.Discard)
@@ -23,10 +22,15 @@ func main(){
 
 }
 
+type matcher struct {
+	byteArray []byte
+	occurence uint
+}
+
 //function for searching the slice of bytes in the slice of slice of bytes
-func isUsed(arr *[][]byte, word *[]byte) int{
+func isUsed(arr *[]matcher, word *[]byte) int {
 	for i := 0; i < len(*arr); i++ {
-		if bytes.Compare((*arr)[i], *word) == 0 {
+		if bytes.Compare((*arr)[i].byteArray, *word) == 0 {
 			return i
 		}
 	}
@@ -65,18 +69,13 @@ func WordCounter(out io.Writer) {
 
 	size = len(sortedSlice)
 
-	numOfCPUs := runtime.NumCPU();
+	numOfCPUs := runtime.NumCPU()
 	//Slice for checked words, reading and counting already checked words cause huge overhead
 
 	var wg sync.WaitGroup
 	var mutex sync.Mutex
 
-	type matcher struct {
-		byteArray []byte
-		occurence uint
-	}
-
-	var matcherChannel = make(chan matcher, size)
+	var matcherChannel = make(chan []matcher)
 
 	//var wordChannel = make(chan []byte, size)
 	//var occurrenceChannel = make(chan uint, size)
@@ -85,44 +84,42 @@ func WordCounter(out io.Writer) {
 
 		avgNumberOfLines := int(math.Round(float64(size / numOfCPUs)))
 
-		for i:=0; i<numOfCPUs;i++ {
+		for i := 0; i < numOfCPUs; i++ {
 
-			wg.Add(1);
+			wg.Add(1)
 
-			if diff:=size - avgNumberOfLines;diff < 0 {
-				avgNumberOfLines-=diff;
+			if diff := size - avgNumberOfLines; diff < 0 {
+				avgNumberOfLines -= diff
 			}
 
-			size-=avgNumberOfLines
+			size -= avgNumberOfLines
 
-			go func(matchChannel chan matcher,
+			go func(matchChannel chan []matcher,
 				wg *sync.WaitGroup, mutex *sync.Mutex,
 				text [][]byte, numberOfLines int, firstIndex int, lastIndex int) {
 
 				defer wg.Done()
 
-				var usedWords [][]byte
-				var occurrenceSlice []uint
+				var matchArray []matcher
 
-				usedWords = append(usedWords, text[firstIndex])
-				occurrenceSlice = append(occurrenceSlice, 1)
+				matchArray = append(matchArray, matcher{
+					byteArray: text[firstIndex],
+					occurence: 1,
+				})
 
-				for i := firstIndex+1; i<=lastIndex; i++{
-					index := isUsed(&usedWords, &text[i])
-					if index == -1{
-						usedWords = append(usedWords, text[i])
-						occurrenceSlice = append(occurrenceSlice, 1)
-					}else {
-						occurrenceSlice[index] += 1
+				for i := firstIndex + 1; i <= lastIndex; i++ {
+					index := isUsed(&matchArray, &text[i])
+					if index == -1 {
+						matchArray = append(matchArray, matcher{
+							byteArray: text[i],
+							occurence: 1,
+						})
+					} else {
+						matchArray[index].occurence += 1
 					}
 				}
 
-				for i:=0; i<len(usedWords); i++ {
-					matcherChannel <- matcher{
-						byteArray: usedWords[i],
-						occurence: occurrenceSlice[i],
-					}
-				}
+				matcherChannel <- matchArray
 
 			}(matcherChannel, &wg, &mutex,
 				sortedSlice, avgNumberOfLines,
@@ -132,44 +129,19 @@ func WordCounter(out io.Writer) {
 
 	}
 
-	var matchedArray []matcher;
-	var flag bool
+	var matchedArray [][]matcher
 
-	go func(matChannel chan matcher, matchedArr *[]matcher, wg *sync.WaitGroup, flag bool) {
-		for request := range matChannel{
-			flag = true
-			if length:=len(matchedArray); length > 0 && matchedArray != nil {
+	go func() {
+		wg.Wait()
+		close(matcherChannel)
+	}()
 
-				for i:= 0; i < length; i++ {
-					if bytes.Compare((*matchedArr)[i].byteArray, request.byteArray) == 0 {
-						(*matchedArr)[i].occurence+=request.occurence
-						flag=false
-						break
-					}
-				}
-
-				if flag {
-					matchedArray = append(matchedArray, matcher{
-						byteArray: request.byteArray,
-						occurence: request.occurence})
-				}
-
-				flag = true
-
-			} else {
-
-				matchedArray = append(matchedArray, matcher{
-					byteArray: request.byteArray,
-					occurence: request.occurence})
-
-			}
-		}
-
-	}(matcherChannel, &matchedArray, &wg, flag)
-
-	wg.Wait()
+	for request := range matcherChannel {
+		matchedArray = append(matchedArray, request)
+	}
 
 	fmt.Println(len(matchedArray))
+
 	//usedWords = append(usedWords, sortedSlice[0])
 	//occurrenceSlice = append(occurrenceSlice, 1)
 	//
