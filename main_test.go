@@ -6,7 +6,7 @@ import (
 )
 
 func BenchmarkWordCounter(b *testing.B) {
-	for i := 0; i < b.N; i++{
+	for i := 0; i < b.N; i++ {
 		WordCounter(ioutil.Discard)
 	}
 }
